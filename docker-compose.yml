@@ -1,0 +1,24 @@
+services:
+  # Le shell Electron réel (apps/desktop), affiché via noVNC, préconfiguré
+  # pour se connecter à ton gateway Hermes déjà existant via des variables
+  # d'env lues directement par apps/desktop/electron/main.ts — pas besoin de
+  # passer par l'écran de connexion au premier lancement.
+  desktop:
+    build:
+      context: .                                        # racine files/
+      dockerfile: hermes-desktop-electron/Dockerfile
+    image: hermes-desktop-electron
+    container_name: hermes-desktop
+    restart: unless-stopped
+    # URL/token de ton gateway existant, définis AVANT de lancer
+    # `docker compose up` :
+    #   export HERMES_GATEWAY_URL="http://<host>:<port>"
+    #   export HERMES_GATEWAY_TOKEN="..."   # optionnel, si auth par token
+    environment:
+      - "HERMES_DESKTOP_REMOTE_URL=${HERMES_GATEWAY_URL}"
+      - "HERMES_DESKTOP_REMOTE_TOKEN=${HERMES_GATEWAY_TOKEN:-}"
+    ports:
+      - "6080:6080"    # interface web (noVNC) — http://localhost:6080/vnc.html
+    shm_size: "1gb"
+    security_opt:
+      - seccomp:unconfined
