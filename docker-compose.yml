@@ -17,8 +17,18 @@ services:
     environment:
       - "HERMES_DESKTOP_REMOTE_URL=${HERMES_GATEWAY_URL}"
       - "HERMES_DESKTOP_REMOTE_TOKEN=${HERMES_GATEWAY_TOKEN:-}"
+      # Persistance : redirige tout le dossier userData d'Electron (config
+      # de connexion, cookies/session OAuth, local storage, préférences
+      # fenêtre) vers un volume nommé, pour survivre aux redémarrages/
+      # rebuilds du conteneur.
+      - "HERMES_DESKTOP_USER_DATA_DIR=/data/hermes-desktop"
+    volumes:
+      - hermes-desktop-data:/data/hermes-desktop
     ports:
       - "6080:6080"    # interface web (noVNC) — http://localhost:6080/vnc.html
     shm_size: "1gb"
     security_opt:
       - seccomp:unconfined
+
+volumes:
+  hermes-desktop-data:

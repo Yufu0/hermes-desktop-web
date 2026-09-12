@@ -1,86 +1,167 @@
-# Hermes Agent Desktop (Electron) en conteneur → connecté à ton gateway existant
+# Déploiement de Hermes Desktop en conteneur (hermes-desktop-web)
 
-## Architecture (simplifiée)
+Guide complet, dans l'ordre, pour déployer la vraie app desktop Electron de
+Hermes Agent en conteneur Docker avec accès web (noVNC), connectée à un
+gateway Hermes déjà existant.
 
-Un seul conteneur, puisque ton gateway Hermes tourne déjà ailleurs :
+## 0. Prérequis
+
+- Docker + Docker Compose installés.
+- L'URL et, si besoin, le token de session de ton gateway Hermes existant
+  et joignable (déjà démarré, pas géré par ce projet).
+
+## 1. Cloner ton repo
+
+```bash
+git clone https://github.com/Yufu0/hermes-desktop-web.git
+cd hermes-desktop-web
+```
+
+Tu dois avoir :
+```
+hermes-desktop-web/
+├── docker-compose.yml
+├── README.md
+└── hermes-desktop-electron/
+    ├── Dockerfile
+    └── docker/
+        ├── start-electron.sh
+        └── supervisord.conf
+```
+
+## 2. Cloner le monorepo source de l'app, À CÔTÉ (au même niveau)
+
+Le `docker-compose.yml` utilise la racine du repo comme contexte de build et
+s'attend à trouver le code source ici :
+
+```bash
+git clone https://github.com/NousResearch/hermes-agent.git
+```
+
+Structure finale attendue (les deux dossiers au même niveau) :
+```
+hermes-desktop-web/
+├── docker-compose.yml
+├── hermes-desktop-electron/
+│   ├── Dockerfile
+│   └── docker/...
+└── hermes-agent/          <- vient d'être cloné
+    ├── package.json
+    ├── apps/desktop/
+    └── ...
+```
+
+## 3. Appliquer le correctif noVNC (version épinglée)
+
+Une version `main` de noVNC a provoqué une erreur JS (`Cannot read
+properties of null (reading 'addEventListener')`) due à un décalage de
+cache. Ouvre `hermes-desktop-electron/Dockerfile` et remplace la ligne :
+
+```dockerfile
+RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/noVNC \
+    && git clone --depth 1 https://github.com/novnc/websockify /opt/noVNC/utils/websockify
+```
+
+par :
+
+```dockerfile
+RUN git clone --depth 1 --branch v1.5.0 https://github.com/novnc/noVNC.git /opt/noVNC \
+    && git clone --depth 1 --branch v0.12.0 https://github.com/novnc/websockify /opt/noVNC/utils/websockify
+```
+
+(Commite ce changement dans ton repo pour ne pas avoir à le refaire.)
+
+## 4. Rendre le script de lancement exécutable
+
+```bash
+chmod +x hermes-desktop-electron/docker/start-electron.sh
+```
+
+## 5. Définir la connexion au gateway existant
+
+**Le point le plus fréquent d'échec : l'URL doit avoir un schéma explicite
+`http://` ou `https://`.** `192.168.1.50:9119` seul est rejeté par l'app
+(`Remote gateway URL is not valid`) ; il faut `http://192.168.1.50:9119`.
+
+```bash
+export HERMES_GATEWAY_URL="http://<host-ou-ip-de-ton-gateway>:<port>"
+# Optionnel — uniquement si ton gateway utilise l'auth par token
+# (laisse vide s'il utilise l'auth OAuth hébergée) :
+export HERMES_GATEWAY_TOKEN="<ton-token>"
+```
+
+## 6. Build et lancement
+
+```bash
+docker compose up --build
+```
+
+Le build fait, dans l'ordre : installation Node (`npm ci` sur le monorepo),
+build de l'app desktop (`vite build` + bundle Electron + staging de
+node-pty), puis l'image finale installe Xvfb/noVNC/fluxbox/supervisor et
+copie le build. Ça prend plusieurs minutes la première fois.
+
+Un volume Docker nommé `hermes-desktop-data` est monté sur
+`/data/hermes-desktop` et branché sur `HERMES_DESKTOP_USER_DATA_DIR` — tout
+le dossier userData d'Electron (config de connexion, cookies/session OAuth,
+local storage, préférences fenêtre) y est stocké et survit à un
+`docker compose down` / rebuild / redémarrage machine. Pour repartir de
+zéro : `docker volume rm hermes-desktop-web_hermes-desktop-data` (le nom
+exact du volume dépend du nom du dossier projet ; `docker volume ls` pour
+vérifier).
+
+## 7. Ouvrir l'interface
 
 ```
-navigateur ──(noVNC/HTTP :6080)──> [conteneur: Xvfb + vraie app Electron]
-                                              │
-                                              │ HERMES_DESKTOP_REMOTE_URL
-                                              ▼
-                                    [ton gateway Hermes existant]
+http://localhost:6080/vnc.html
 ```
 
-C'est toujours la vraie app `apps/desktop` (pas le dashboard web), affichée
-via noVNC. Elle est préconfigurée par variables d'environnement pour se
-connecter directement à ton gateway, sans passer par l'écran "first-run" de
-connexion.
+Si tu obtiens une erreur JS noVNC (`addEventListener` sur `null`) malgré le
+correctif de l'étape 3 : fais un rechargement forcé (`Ctrl+Shift+R`) ou
+ouvre un onglet de navigation privée — c'est un souci de cache navigateur,
+pas serveur.
 
-Ces variables sont lues nativement par le code de l'app
-(`apps/desktop/electron/main.ts`) :
+## 8. Vérifier que la connexion au gateway est bien passée
 
-- `HERMES_DESKTOP_REMOTE_URL` : bascule automatiquement l'app en mode remote
-  et pointe vers cette URL, pour tous les profils.
-- `HERMES_DESKTOP_REMOTE_TOKEN` : le jeton de session si ton gateway utilise
-  l'auth par token (`X-Hermes-Session-Token`). Laisse-la vide si ton gateway
-  utilise l'auth OAuth hébergée — l'app affichera alors l'écran de login
-  habituel dans la fenêtre (visible via noVNC).
+Dans un autre terminal, pendant que le conteneur tourne :
 
-## Mise en place
+```bash
+docker exec hermes-desktop env | grep HERMES_DESKTOP_REMOTE
+```
 
-1. Clone le monorepo à côté de ces fichiers :
-   ```bash
-   git clone https://github.com/NousResearch/hermes-agent.git
-   ```
-   Structure attendue :
-   ```
-   ./hermes-agent/              <- le monorepo cloné (sert de contexte de build)
-   ./hermes-desktop-electron/   <- Dockerfile, docker/, ce README
-   ./docker-compose.yml
-   ```
+Tu dois voir :
+```
+HERMES_DESKTOP_REMOTE_URL=http://<ton-host>:<port>
+HERMES_DESKTOP_REMOTE_TOKEN=<vide ou ton token>
+```
 
-2. Renseigne l'adresse de ton gateway (obligatoire — sans ça la variable
-   passée au conteneur sera vide et l'app restera en mode local) :
-   ```bash
-   export HERMES_GATEWAY_URL="http://<host-ou-ip-de-ton-gateway>:<port>"
-   export HERMES_GATEWAY_TOKEN="ton-token-si-auth-par-token"   # optionnel
-   ```
-   Si le gateway tourne sur ta machine hôte (hors Docker), utilise
-   `http://host.docker.internal:<port>` sous Docker Desktop (Mac/Windows) ;
-   sous Linux natif, ajoute `extra_hosts: ["host.docker.internal:host-gateway"]`
-   au service `desktop` dans le `docker-compose.yml`, ou utilise directement
-   l'IP de la machine hôte.
+Si `HERMES_DESKTOP_REMOTE_URL` est vide ici, la variable n'a pas été
+exportée avant le `docker compose up` (retourne à l'étape 5, puis relance
+`docker compose up --build` — pas besoin de tout rebuild, Compose recréera
+juste le conteneur avec le nouvel environnement).
 
-3. Lance :
-   ```bash
-   docker compose up --build
-   ```
+## 9. Lire les logs si quelque chose cloche
 
-4. Ouvre `http://localhost:6080/vnc.html?autoconnect=true&resize=scale`.
-   L'app devrait démarrer déjà connectée à ton gateway (mode remote global).
+```bash
+docker compose logs -f desktop
+```
 
-## Limites connues (honnêtes) — à vérifier/adapter
+Erreurs à ignorer (inoffensives, attendues en conteneur sans session
+desktop complète) :
+- `Failed to connect to the bus` (dbus)
+- `Failed to read: session.screen0.titlebar.*` (fluxbox, thème par défaut)
+- `install-stamp.json ... ENOENT` (vérif auto-updater, non pertinente ici)
+- `404 ... /api/audio/voice-live/status` (probe de fonctionnalité optionnelle
+  que ton gateway n'expose pas forcément)
 
-Cette app est **beaucoup** plus intégrée à l'OS qu'une Electron classique :
-OAuth natif via fenêtres système, trousseau de clés (libsecret), terminal
-intégré (node-pty, compilé nativement), détection WSL. Dans un conteneur
-Linux sans session desktop réelle :
+Erreur à traiter : `Remote gateway URL is not valid: Invalid URL` → revoir
+l'étape 5 (schéma `http://`/`https://` manquant, ou variable non exportée).
 
-- **OAuth hébergé** (si ton gateway l'utilise) : le flux ouvre une fenêtre
-  système captée par le navigateur par défaut — à tester via noVNC.
-- **Trousseau de secrets (libsecret)** : sans GNOME Keyring/KWallet actif,
-  le stockage de secrets peut tomber en fallback ; sans impact si tu passes
-  déjà le token par variable d'env.
-- **Mise à jour automatique** (`updater-process.ts`) : une image Docker se
-  met à jour en rebuild, pas via l'auto-updater intégré — ignore/désactive
-  cette fonctionnalité si elle se manifeste dans l'UI.
+## Limites connues de ce setup
 
-Je n'ai pas de démon Docker disponible dans cet environnement pour valider
-un build de bout en bout — ce Dockerfile est construit à partir de la
-lecture réelle du code source du repo (`package.json`, scripts de build,
-les vraies variables d'env `HERMES_DESKTOP_REMOTE_*` dans `main.ts`), mais
-attends-toi à ajuster un détail ou deux au premier `docker compose up --build`
-(chemins de workspace manquants dans les `COPY` du Dockerfile, par exemple,
-si l'app dépend d'un autre workspace que `apps/shared`). Colle-moi les
-erreurs si ça bloque.
+- OAuth natif, trousseau de secrets (libsecret), et mise à jour automatique
+  de l'app ne sont pas garantis de fonctionner à l'identique d'un vrai
+  poste de bureau — voir le `README.md` du repo pour le détail.
+- Ce n'est pas le dashboard web officiel de Hermes (`hermes dashboard`) :
+  c'est la vraie app Electron, capturée en VNC. Plus riche, mais plus lourd
+  et plus fragile en environnement conteneurisé sans session desktop réelle.
