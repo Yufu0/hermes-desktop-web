@@ -47,17 +47,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libnss3 libatk-bridge2.0-0 libatk1.0-0 libgtk-3-0 libgbm1 \
     libasound2 libxss1 libxtst6 libx11-xcb1 libdrm2 libsecret-1-0 \
     xdg-utils \
+    fonts-liberation fonts-noto-color-emoji fonts-dejavu-core fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/noVNC \
-    && git clone --depth 1 https://github.com/novnc/websockify /opt/noVNC/utils/websockify
+RUN git clone --depth 1 --branch v1.5.0 https://github.com/novnc/noVNC.git /opt/noVNC \
+    && git clone --depth 1 --branch v0.12.0 https://github.com/novnc/websockify /opt/noVNC/utils/websockify
 
 WORKDIR /repo
 COPY --from=builder /repo /repo
 
 ENV DISPLAY=:99
-ENV WIDTH=1280
-ENV HEIGHT=800
+ENV WIDTH=1920
+ENV HEIGHT=1080
 ENV NOVNC_PORT=6080
 
 COPY hermes-desktop-electron/docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf

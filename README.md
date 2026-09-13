@@ -112,9 +112,22 @@ vérifier).
 
 ## 7. Ouvrir l'interface
 
+Pour la meilleure qualité visuelle, utilise ces paramètres dans l'URL
+(qualité JPEG maximale, pas de compression zlib superflue en local) :
+
 ```
-http://localhost:6080/vnc.html
+http://localhost:6080/vnc.html?autoconnect=true&quality=9&compression=0&resize=scale
 ```
+
+- `quality=9` : qualité JPEG maximale de l'encodage Tight (0 = très
+  compressé/flou, 9 = quasi sans perte).
+- `compression=0` : pas de compression zlib supplémentaire — inutile en
+  local, ça ne fait que consommer du CPU pour rien.
+- `resize=scale` : redimensionne l'écran virtuel (1920×1080 par défaut
+  maintenant) pour tenir dans ta fenêtre de navigateur. Si ton écran est
+  assez grand, tu peux mettre `resize=off` à la place pour un rendu pixel
+  pour pixel sans aucun lissage de redimensionnement (plus net, mais avec
+  scrollbars si ta fenêtre est plus petite que 1920×1080).
 
 Si tu obtiens une erreur JS noVNC (`addEventListener` sur `null`) malgré le
 correctif de l'étape 3 : fais un rechargement forcé (`Ctrl+Shift+R`) ou
